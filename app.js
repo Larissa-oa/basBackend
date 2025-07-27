@@ -6,14 +6,16 @@ require("./db");
 
 // Handles http requests (express is node js framework)
 const express = require("express");
-const cors = require("cors"); // <--- ADD THIS
+const cors = require("cors");
 
 const app = express();
 
-// ✅ Enable CORS before routes
+// ✅ Enable CORS before routes - Updated for production
 app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://basvankranen.netlify.app'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // ℹ️ This function is getting exported from the config folder. It runs most pieces of middleware

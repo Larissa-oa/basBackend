@@ -5,8 +5,66 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User.model");
 const { isAuthenticated } = require("../middleware/jwt.middleware.js");
 const multer = require("../middleware/multer.middleware.js");
+const mongoose = require("mongoose"); // Added for mongoose connection state
 
 const saltRounds = 10;
+
+// Test route to check database connection and create a test user
+router.post("/test-setup", async (req, res, next) => {
+  try {
+    console.log("Testing database connection...");
+    
+    // Check if TOKEN_SECRET exists
+    console.log("TOKEN_SECRET exists:", !!process.env.TOKEN_SECRET);
+    console.log("MONGODB_URI:", process.env.MONGODB_URI ? "Set" : "Not set");
+    console.log("Database connection state:", mongoose.connection.readyState);
+    
+    // Get database info
+    const dbName = mongoose.connection.name;
+    const dbHost = mongoose.connection.host;
+    console.log("Connected to database:", dbName, "on host:", dbHost);
+    
+    // Check database connection by counting users
+    const userCount = await User.countDocuments();
+    console.log("Number of users in database:", userCount);
+    
+    // Get all users to see what's in the database
+    const allUsers = await User.find({}).select('email name');
+    console.log("All users:", allUsers);
+    
+    // Create a test user if none exist
+    if (userCount === 0) {
+      console.log("No users found, creating test user...");
+      const salt = bcrypt.genSaltSync(saltRounds);
+      const hashedPassword = bcrypt.hashSync("Test123!", salt);
+      
+      const testUser = await User.create({
+        email: "test@example.com",
+        password: hashedPassword,
+        name: "Test User",
+        isAdmin: false
+      });
+      
+      console.log("Test user created:", testUser.email);
+      res.status(200).json({ 
+        message: "Test user created successfully",
+        user: { email: testUser.email, name: testUser.name },
+        credentials: { email: "test@example.com", password: "Test123!" },
+        databaseInfo: { name: dbName, host: dbHost, userCount: userCount + 1 }
+      });
+    } else {
+      res.status(200).json({ 
+        message: "Database connected successfully",
+        userCount: userCount,
+        users: allUsers,
+        databaseInfo: { name: dbName, host: dbHost }
+      });
+    }
+  } catch (error) {
+    console.error("Test setup error:", error);
+    res.status(500).json({ message: "Database connection failed", error: error.message });
+  }
+});
 
 // Signup with optional isAdmin (use cautiously!)
 router.post("/signup", (req, res, next) => {
@@ -55,32 +113,62 @@ router.post("/signup", (req, res, next) => {
 router.post("/login", (req, res, next) => {
   const { email, password } = req.body;
 
+  console.log("=== LOGIN DEBUG ===");
+  console.log("Login attempt for email:", email);
+  console.log("TOKEN_SECRET exists:", !!process.env.TOKEN_SECRET);
+  console.log("MONGODB_URI:", process.env.MONGODB_URI ? "Set" : "Not set");
+  console.log("Database connection state:", mongoose.connection.readyState);
+
   if (email === "" || password === "") {
     return res.status(400).json({ message: "Provide email and password." });
   }
 
-  User.findOne({ email })
+  // First, let's check what users exist in the database
+  User.find({})
+    .then((allUsers) => {
+      console.log("All users in database:", allUsers.map(u => ({ email: u.email, name: u.name })));
+      
+      // Now try to find the specific user
+      return User.findOne({ email });
+    })
     .then((foundUser) => {
+      console.log("User found:", !!foundUser);
+      console.log("Found user details:", foundUser ? { email: foundUser.email, name: foundUser.name } : "None");
+      
       if (!foundUser) {
+        console.log("User not found in database");
         return res.status(401).json({ message: "User not found." });
       }
 
+      console.log("User found, comparing passwords...");
       const passwordCorrect = bcrypt.compareSync(password, foundUser.password);
+      console.log("Password correct:", passwordCorrect);
 
       if (passwordCorrect) {
         const { _id, email, name, isAdmin } = foundUser;
         const payload = { _id, email, name, isAdmin };
+        
+        if (!process.env.TOKEN_SECRET) {
+          console.error("TOKEN_SECRET is not set!");
+          return res.status(500).json({ message: "Server configuration error" });
+        }
+        
         const authToken = jwt.sign(payload, process.env.TOKEN_SECRET, {
           algorithm: "HS256",
           expiresIn: "6h",
         });
 
+        console.log("Login successful, token generated");
         res.status(200).json({ authToken });
       } else {
+        console.log("Password incorrect");
         return res.status(401).json({ message: "Unable to authenticate the user" });
       }
     })
-    .catch((err) => next(err));
+    .catch((err) => {
+      console.error("Login error:", err);
+      next(err);
+    });
 });
 
 // Verify token

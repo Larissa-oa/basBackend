@@ -67,108 +67,138 @@ router.post("/test-setup", async (req, res, next) => {
 });
 
 // Signup with optional isAdmin (use cautiously!)
-router.post("/signup", (req, res, next) => {
-  const { email, password, name, isAdmin } = req.body;
+router.post("/signup", async (req, res, next) => {
+  try {
+    console.log("=== SIGNUP DEBUG ===");
+    console.log("Signup attempt with data:", { email: req.body.email, name: req.body.name });
+    console.log("TOKEN_SECRET exists:", !!process.env.TOKEN_SECRET);
+    console.log("MONGODB_URI:", process.env.MONGODB_URI ? "Set" : "Not set");
+    console.log("Database connection state:", mongoose.connection.readyState);
 
-  if (email === "" || password === "" || name === "") {
-    return res.status(400).json({ message: "Provide email, password and name" });
-  }
+    const { email, password, name, isAdmin } = req.body;
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ message: "Provide a valid email address." });
-  }
+    if (email === "" || password === "" || name === "") {
+      return res.status(400).json({ message: "Provide email, password and name" });
+    }
 
-  const passwordRegex = /(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,}/;
-  if (!passwordRegex.test(password)) {
-    return res.status(400).json({
-      message:
-        "Password must have at least 6 characters and contain at least one number, one lowercase and one uppercase letter.",
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: "Provide a valid email address." });
+    }
+
+    const passwordRegex = /(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,}/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        message:
+          "Password must have at least 6 characters and contain at least one number, one lowercase and one uppercase letter.",
+      });
+    }
+
+    // Check if user already exists
+    const foundUser = await User.findOne({ email });
+    if (foundUser) {
+      return res.status(400).json({ message: "User already exists." });
+    }
+
+    // Hash password
+    const salt = bcrypt.genSaltSync(saltRounds);
+    const hashedPassword = bcrypt.hashSync(password, salt);
+
+    // Cast isAdmin to boolean, default false if not provided
+    const adminFlag = isAdmin === true || isAdmin === "true" ? true : false;
+
+    // Create user
+    const createdUser = await User.create({ 
+      email, 
+      password: hashedPassword, 
+      name, 
+      isAdmin: adminFlag 
     });
+
+    console.log("User created successfully:", createdUser.email);
+
+    const { email: userEmail, name: userName, _id, isAdmin: userIsAdmin } = createdUser;
+    const user = { email: userEmail, name: userName, _id, isAdmin: userIsAdmin };
+    res.status(201).json({ user });
+
+  } catch (error) {
+    console.error("Signup error:", error);
+    console.error("Error stack:", error.stack);
+    
+    // Check for specific MongoDB errors
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "User already exists." });
+    }
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        message: "Validation error", 
+        details: Object.values(error.errors).map(err => err.message)
+      });
+    }
+    
+    next(error);
   }
-
-  User.findOne({ email })
-    .then((foundUser) => {
-      if (foundUser) {
-        return res.status(400).json({ message: "User already exists." });
-      }
-
-      const salt = bcrypt.genSaltSync(saltRounds);
-      const hashedPassword = bcrypt.hashSync(password, salt);
-
-      // Cast isAdmin to boolean, default false if not provided
-      const adminFlag = isAdmin === true || isAdmin === "true" ? true : false;
-
-      return User.create({ email, password: hashedPassword, name, isAdmin: adminFlag });
-    })
-    .then((createdUser) => {
-      const { email, name, _id, isAdmin } = createdUser;
-      const user = { email, name, _id, isAdmin };
-      res.status(201).json({ user });
-    })
-    .catch((err) => next(err));
 });
 
 // Login
-router.post("/login", (req, res, next) => {
-  const { email, password } = req.body;
+router.post("/login", async (req, res, next) => {
+  try {
+    console.log("=== LOGIN DEBUG ===");
+    console.log("Login attempt for email:", req.body.email);
+    console.log("TOKEN_SECRET exists:", !!process.env.TOKEN_SECRET);
+    console.log("MONGODB_URI:", process.env.MONGODB_URI ? "Set" : "Not set");
+    console.log("Database connection state:", mongoose.connection.readyState);
 
-  console.log("=== LOGIN DEBUG ===");
-  console.log("Login attempt for email:", email);
-  console.log("TOKEN_SECRET exists:", !!process.env.TOKEN_SECRET);
-  console.log("MONGODB_URI:", process.env.MONGODB_URI ? "Set" : "Not set");
-  console.log("Database connection state:", mongoose.connection.readyState);
+    const { email, password } = req.body;
 
-  if (email === "" || password === "") {
-    return res.status(400).json({ message: "Provide email and password." });
+    if (email === "" || password === "") {
+      return res.status(400).json({ message: "Provide email and password." });
+    }
+
+    // First, let's check what users exist in the database
+    const allUsers = await User.find({});
+    console.log("All users in database:", allUsers.map(u => ({ email: u.email, name: u.name })));
+    
+    // Now try to find the specific user
+    const foundUser = await User.findOne({ email });
+    console.log("User found:", !!foundUser);
+    console.log("Found user details:", foundUser ? { email: foundUser.email, name: foundUser.name } : "None");
+    
+    if (!foundUser) {
+      console.log("User not found in database");
+      return res.status(401).json({ message: "User not found." });
+    }
+
+    console.log("User found, comparing passwords...");
+    const passwordCorrect = bcrypt.compareSync(password, foundUser.password);
+    console.log("Password correct:", passwordCorrect);
+
+    if (passwordCorrect) {
+      const { _id, email: userEmail, name, isAdmin } = foundUser;
+      const payload = { _id, email: userEmail, name, isAdmin };
+      
+      if (!process.env.TOKEN_SECRET) {
+        console.error("TOKEN_SECRET is not set!");
+        return res.status(500).json({ message: "Server configuration error" });
+      }
+      
+      const authToken = jwt.sign(payload, process.env.TOKEN_SECRET, {
+        algorithm: "HS256",
+        expiresIn: "6h",
+      });
+
+      console.log("Login successful, token generated");
+      res.status(200).json({ authToken });
+    } else {
+      console.log("Password incorrect");
+      return res.status(401).json({ message: "Unable to authenticate the user" });
+    }
+  } catch (error) {
+    console.error("Login error:", error);
+    console.error("Error stack:", error.stack);
+    next(error);
   }
-
-  // First, let's check what users exist in the database
-  User.find({})
-    .then((allUsers) => {
-      console.log("All users in database:", allUsers.map(u => ({ email: u.email, name: u.name })));
-      
-      // Now try to find the specific user
-      return User.findOne({ email });
-    })
-    .then((foundUser) => {
-      console.log("User found:", !!foundUser);
-      console.log("Found user details:", foundUser ? { email: foundUser.email, name: foundUser.name } : "None");
-      
-      if (!foundUser) {
-        console.log("User not found in database");
-        return res.status(401).json({ message: "User not found." });
-      }
-
-      console.log("User found, comparing passwords...");
-      const passwordCorrect = bcrypt.compareSync(password, foundUser.password);
-      console.log("Password correct:", passwordCorrect);
-
-      if (passwordCorrect) {
-        const { _id, email, name, isAdmin } = foundUser;
-        const payload = { _id, email, name, isAdmin };
-        
-        if (!process.env.TOKEN_SECRET) {
-          console.error("TOKEN_SECRET is not set!");
-          return res.status(500).json({ message: "Server configuration error" });
-        }
-        
-        const authToken = jwt.sign(payload, process.env.TOKEN_SECRET, {
-          algorithm: "HS256",
-          expiresIn: "6h",
-        });
-
-        console.log("Login successful, token generated");
-        res.status(200).json({ authToken });
-      } else {
-        console.log("Password incorrect");
-        return res.status(401).json({ message: "Unable to authenticate the user" });
-      }
-    })
-    .catch((err) => {
-      console.error("Login error:", err);
-      next(err);
-    });
 });
 
 // Verify token

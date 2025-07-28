@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Recipe = require('../models/Recipe.model');
-const upload = require('../middleware/multer.middleware');
+const { upload, deleteImage, getPublicIdFromUrl } = require('../middleware/multer.middleware');
 const { isAuthenticated } = require('../middleware/jwt.middleware');
 const isAdmin = require('../middleware/isAdmin.middleware');
 
@@ -17,8 +17,8 @@ router.post('/',
     try {
       const newRecipe = {
         ...req.body,
-        headerImage: req.files.headerImage ? `/uploads/${req.files.headerImage[0].filename}` : null,
-        processImages: req.files.processImages ? req.files.processImages.map(file => `/uploads/${file.filename}`) : [],
+        headerImage: req.files.headerImage ? req.files.headerImage[0].path : null,
+        processImages: req.files.processImages ? req.files.processImages.map(file => file.path) : [],
         createdBy: req.payload._id
       };
       const recipe = await Recipe.create(newRecipe);
@@ -60,17 +60,35 @@ router.put('/:id',
   ]),
   async (req, res) => {
     try {
+      const recipe = await Recipe.findById(req.params.id);
+      if (!recipe) return res.status(404).json({ message: 'Recipe not found' });
+
       const updateData = { ...req.body };
+      
+      // Handle header image update
       if (req.files.headerImage) {
-        updateData.headerImage = `/uploads/${req.files.headerImage[0].filename}`;
+        // Delete old header image from Cloudinary
+        if (recipe.headerImage) {
+          const publicId = getPublicIdFromUrl(recipe.headerImage);
+          await deleteImage(publicId);
+        }
+        updateData.headerImage = req.files.headerImage[0].path;
       }
+      
+      // Handle process images update
       if (req.files.processImages) {
-        updateData.processImages = req.files.processImages.map(file => `/uploads/${file.filename}`);
+        // Delete old process images from Cloudinary
+        if (recipe.processImages && recipe.processImages.length > 0) {
+          for (const imageUrl of recipe.processImages) {
+            const publicId = getPublicIdFromUrl(imageUrl);
+            await deleteImage(publicId);
+          }
+        }
+        updateData.processImages = req.files.processImages.map(file => file.path);
       }
 
-      const recipe = await Recipe.findByIdAndUpdate(req.params.id, updateData, { new: true });
-      if (!recipe) return res.status(404).json({ message: 'Recipe not found' });
-      res.status(200).json(recipe);
+      const updatedRecipe = await Recipe.findByIdAndUpdate(req.params.id, updateData, { new: true });
+      res.status(200).json(updatedRecipe);
     } catch (error) {
       res.status(500).json({ message: error.message });
     }
@@ -80,8 +98,23 @@ router.put('/:id',
 // Delete Recipe
 router.delete('/:id', isAuthenticated, isAdmin, async (req, res) => {
   try {
-    const recipe = await Recipe.findByIdAndDelete(req.params.id);
+    const recipe = await Recipe.findById(req.params.id);
     if (!recipe) return res.status(404).json({ message: 'Recipe not found' });
+
+    // Delete images from Cloudinary
+    if (recipe.headerImage) {
+      const publicId = getPublicIdFromUrl(recipe.headerImage);
+      await deleteImage(publicId);
+    }
+    
+    if (recipe.processImages && recipe.processImages.length > 0) {
+      for (const imageUrl of recipe.processImages) {
+        const publicId = getPublicIdFromUrl(imageUrl);
+        await deleteImage(publicId);
+      }
+    }
+
+    await Recipe.findByIdAndDelete(req.params.id);
     res.status(200).json({ message: 'Recipe deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });

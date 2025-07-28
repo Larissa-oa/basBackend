@@ -1,16 +1,21 @@
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('cloudinary').v2;
 
-const uploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'do8nqb1cm',
+  api_key: process.env.CLOUDINARY_API_KEY || '669728947363792',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'v3S79P166aGmNEvrULx5cQvMiPY'
+});
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
+// Configure Cloudinary storage
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'bas-backend',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+    transformation: [{ width: 1000, height: 1000, crop: 'limit' }]
   }
 });
 
@@ -28,4 +33,26 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB
 });
 
-module.exports = upload;
+// Helper function to delete image from Cloudinary
+const deleteImage = async (publicId) => {
+  try {
+    if (publicId) {
+      const result = await cloudinary.uploader.destroy(publicId);
+      console.log('Image deleted from Cloudinary:', result);
+      return result;
+    }
+  } catch (error) {
+    console.error('Error deleting image from Cloudinary:', error);
+  }
+};
+
+// Helper function to extract public ID from URL
+const getPublicIdFromUrl = (url) => {
+  if (!url) return null;
+  
+  // Extract public ID from Cloudinary URL
+  const match = url.match(/\/v\d+\/([^\/]+)\./);
+  return match ? match[1] : null;
+};
+
+module.exports = { upload, deleteImage, getPublicIdFromUrl };

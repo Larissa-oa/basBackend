@@ -66,6 +66,92 @@ router.post("/test-setup", async (req, res, next) => {
   }
 });
 
+// Test password hashing route
+router.post("/test-password", async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ message: "Provide email and password" });
+    }
+    
+    console.log("=== PASSWORD TEST DEBUG ===");
+    console.log("Testing password for email:", email);
+    console.log("Input password:", password);
+    console.log("Password length:", password.length);
+    
+    // Find user
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    console.log("User found:", user.email);
+    console.log("Stored password hash:", user.password);
+    console.log("Stored hash length:", user.password.length);
+    
+    // Test password comparison
+    const isCorrect = bcrypt.compareSync(password, user.password);
+    console.log("Password comparison result:", isCorrect);
+    
+    // Test creating a new hash
+    const testHash = bcrypt.hashSync(password, 10);
+    console.log("New hash of same password:", testHash);
+    
+    // Test comparing with new hash
+    const testComparison = bcrypt.compareSync(password, testHash);
+    console.log("Test comparison result:", testComparison);
+    
+    res.status(200).json({
+      message: "Password test completed",
+      userEmail: user.email,
+      passwordCorrect: isCorrect,
+      testHash: testHash.substring(0, 20) + "...",
+      testComparison: testComparison
+    });
+    
+  } catch (error) {
+    console.error("Password test error:", error);
+    res.status(500).json({ message: "Password test failed", error: error.message });
+  }
+});
+
+// Test Cloudinary configuration
+router.get("/test-cloudinary", async (req, res, next) => {
+  try {
+    const cloudinary = require('cloudinary').v2;
+    
+    console.log("=== CLOUDINARY TEST ===");
+    console.log("Cloudinary config:", {
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY ? "Set" : "Not set",
+      api_secret: process.env.CLOUDINARY_API_SECRET ? "Set" : "Not set"
+    });
+    
+    // Test Cloudinary connection
+    const result = await cloudinary.api.ping();
+    console.log("Cloudinary ping result:", result);
+    
+    res.status(200).json({
+      message: "Cloudinary test completed",
+      config: {
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY ? "Set" : "Not set",
+        api_secret: process.env.CLOUDINARY_API_SECRET ? "Set" : "Not set"
+      },
+      ping: result
+    });
+    
+  } catch (error) {
+    console.error("Cloudinary test error:", error);
+    res.status(500).json({ 
+      message: "Cloudinary test failed", 
+      error: error.message 
+    });
+  }
+});
+
 // Signup with optional isAdmin (use cautiously!)
 router.post("/signup", async (req, res, next) => {
   try {

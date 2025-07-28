@@ -25,6 +25,9 @@ app.use("/journals", journalRoutes);
 const recipeRoutes = require("./routes/recipe.routes");
 app.use("/recipes", recipeRoutes);
 
+const uploadRoutes = require("./routes/upload.routes");
+app.use("/upload", uploadRoutes);
+
 // ❗ To handle errors. Routes that don't exist or errors that you handle in specific routes
 require("./error-handling")(app);
 

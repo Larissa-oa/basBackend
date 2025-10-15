@@ -28,6 +28,9 @@ app.use("/recipes", recipeRoutes);
 const uploadRoutes = require("./routes/upload.routes");
 app.use("/upload", uploadRoutes);
 
+const newsletterRoutes = require("./routes/newsletter.routes");
+app.use("/newsletter", newsletterRoutes);
+
 // ❗ To handle errors. Routes that don't exist or errors that you handle in specific routes
 require("./error-handling")(app);
 
